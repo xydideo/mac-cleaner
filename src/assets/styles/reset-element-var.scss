@@ -90,6 +90,10 @@ html {
   --el-radio-input-border-color: #{$border-subtle};
   --el-radio-text-color: #{$text-secondary};
 
+  --el-switch-on-color: #{$color-purple};
+  --el-switch-off-color: rgba(255, 255, 255, 0.12);
+  --el-switch-border-color: #{$border-subtle};
+
   --el-select-border-color-hover: rgba(124, 58, 237, 0.35);
   --el-select-disabled-color: rgba(148, 163, 184, 0.45);
   --el-select-disabled-border: rgba(255, 255, 255, 0.06);

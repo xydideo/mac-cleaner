@@ -2,12 +2,12 @@
   <div class="junk-clean">
     <!-- 扫描中 -->
     <div v-if="scanning" class="scanning-view">
-      <DiskRing :percent="scanProgress?.percent ?? 0" label="扫描进度" :scanning="!scanPaused" />
-      <p class="scanning-text">
-        {{ scanPaused ? "扫描已暂停" : (scanProgress?.current_path ?? "准备扫描...") }}
-      </p>
-      <el-progress :percentage="Math.round(scanProgress?.percent ?? 0)" />
-      <ScanControlButtons :paused="scanPaused" @pause="pauseScan" @resume="resumeScan" />
+      <DiskRing
+        :percent="scanProgress?.percent ?? 0"
+        :label="lastScanMode === 'deep' ? '深度扫描' : '智能扫描'"
+        :scanning="true"
+      />
+      <p class="scanning-text">{{ lastScanMode === 'deep' ? '深度扫描中...' : '智能扫描中...' }}</p>
     </div>
 
     <!-- 扫描结果 -->
@@ -158,7 +158,6 @@ import { computed, onUnmounted, reactive, ref } from "vue"
 import { ArrowDown } from "@element-plus/icons-vue"
 import { ElMessage, ElMessageBox } from "element-plus"
 import DiskRing from "@/components/DiskRing.vue"
-import ScanControlButtons from "@/components/ScanControlButtons.vue"
 import { useScanner } from "@/composables/useScanner"
 import { cleanPaths } from "@/api/cleaner"
 import { formatSize } from "@/utils/formatSize"
@@ -166,7 +165,7 @@ import { notifyCleanResult } from "@/utils/cleanResult"
 import { QUICK_SCAN_SCOPE_TIP, DEEP_SCAN_SCOPE_TIP } from "@/constants/scanScopeTips"
 import type { ScanItem } from "@/types/cleaner"
 
-const { scanning, scanPaused, scanProgress, scanItems, lastScanMode, lastScanAt, scan, rescan, pauseScan, resumeScan, teardownListeners } = useScanner()
+const { scanning, scanProgress, scanItems, lastScanMode, lastScanAt, scan, rescan, teardownListeners } = useScanner()
 const expandedGroups = reactive(new Set<string>(["cache", "log", "trash", "leftover", "large_file"]))
 const cleaning = ref(false)
 const cleaningText = ref("")

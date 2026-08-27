@@ -66,9 +66,12 @@ export async function analyzeFolderItems(
   return result.data
 }
 
+export type LargeScanKind = "folders" | "files"
+
 export async function scanLargeFiles(
   minFileBytes: number,
-  minFolderBytes: number
+  minFolderBytes: number,
+  scanKind: LargeScanKind = "folders"
 ): Promise<LargeFileScanResult> {
   if (!isTauriRuntime()) {
     return {
@@ -90,7 +93,11 @@ export async function scanLargeFiles(
     data: LargeFileScanResult
   }>("tauri_message", {
     type: "large_file_scan",
-    data: { min_file_bytes: minFileBytes, min_folder_bytes: minFolderBytes },
+    data: {
+      min_file_bytes: minFileBytes,
+      min_folder_bytes: minFolderBytes,
+      scan_kind: scanKind,
+    },
   })
   return result.data
 }

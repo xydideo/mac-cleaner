@@ -1,5 +1,5 @@
 <template>
-  <header class="app-header" data-tauri-drag-region>
+  <header class="app-header" @mousedown="onHeaderMouseDown" @selectstart.prevent>
     <div class="header-left">
       <WindowTrafficLights />
       <div class="brand">
@@ -7,7 +7,7 @@
         <span class="app-subtitle">{{ APP_NAME }}</span>
       </div>
     </div>
-    <div class="header-center" data-tauri-drag-region>
+    <div class="header-center">
       <span class="page-title">{{ currentTitle }}</span>
     </div>
     <div class="header-right" />
@@ -15,13 +15,25 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue"
+import { computed, onMounted } from "vue"
 import { useRoute } from "vue-router"
 import { APP_NAME, APP_NAME_CN } from "@/constants/app"
+import { isTauriRuntime } from "@/utils/tauriPlatform"
+import { ensureWindowMaximizeListener, handleHeaderMouseDown } from "@/utils/windowChrome"
 import WindowTrafficLights from "./WindowTrafficLights.vue"
 
 const route = useRoute()
 const currentTitle = computed(() => (route.meta.title as string) || APP_NAME_CN)
+
+const onHeaderMouseDown = (event: MouseEvent) => {
+  void handleHeaderMouseDown(event)
+}
+
+onMounted(() => {
+  if (isTauriRuntime()) {
+    void ensureWindowMaximizeListener()
+  }
+})
 </script>
 
 <style scoped lang="scss">
@@ -32,6 +44,13 @@ const currentTitle = computed(() => (route.meta.title as string) || APP_NAME_CN)
   padding: 0 20px 0 16px;
   flex-shrink: 0;
   user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+
+  * {
+    user-select: none;
+    -webkit-user-select: none;
+  }
 }
 
 .header-left {

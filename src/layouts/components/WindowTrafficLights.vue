@@ -4,6 +4,7 @@
     class="traffic-lights"
     @mouseenter="hovered = true"
     @mouseleave="hovered = false"
+    @dblclick.stop
   >
     <button class="traffic-light is-close" type="button" title="关闭" @click.stop="handleClose">
       <svg v-show="hovered" class="traffic-light__icon" viewBox="0 0 12 12">

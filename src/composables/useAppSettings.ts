@@ -22,7 +22,7 @@ const DEFAULTS: AppSettings = {
   staleDays: 90,
   largeFileMB: 200,
   largeFolderMB: 1024,
-  showHiddenFiles: false,
+  showHiddenFiles: true,
 }
 
 export function formatThresholdMB(mb: number): string {

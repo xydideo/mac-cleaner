@@ -29,5 +29,6 @@ tokio = { version = "1", features = ["time"] }
 base64 = "0.22"
 
 [target."cfg(target_os = \"macos\")".dependencies]
-objc2-app-kit = { version = "0.3.2", features = ["NSColor", "NSWindow", "NSView", "objc2-core-foundation", "objc2-quartz-core"] }
+objc2-app-kit = { version = "0.3.2", features = ["NSColor", "NSWindow", "NSView", "NSScreen", "objc2-core-foundation", "objc2-quartz-core"] }
+objc2-foundation = { version = "0.3.2", features = ["NSGeometry"] }
 objc2-quartz-core = { version = "0.3.2", features = ["CALayer", "objc2-core-foundation"] }

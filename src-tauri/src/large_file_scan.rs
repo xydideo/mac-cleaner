@@ -4,11 +4,26 @@ use crate::protected_paths;
 use crate::scan_control;
 use chrono::{DateTime, Local};
 use serde::Serialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 const MAX_RESULTS: usize = 800;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LargeScanKind {
+    Folders,
+    Files,
+}
+
+impl LargeScanKind {
+    pub fn parse(value: &str) -> Self {
+        match value {
+            "files" => Self::Files,
+            _ => Self::Folders,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct LargeFileScanProgress {
@@ -20,6 +35,7 @@ pub struct LargeFileScanProgress {
 pub fn scan_large_items(
     min_file_bytes: u64,
     min_folder_bytes: u64,
+    kind: LargeScanKind,
     mut on_progress: impl FnMut(LargeFileScanProgress),
 ) -> Result<(Vec<BrowseItem>, FolderBrowseSummary, u64), String> {
     let roots = scan_roots();
@@ -57,10 +73,14 @@ pub fn scan_large_items(
             current_path = path.to_string_lossy().to_string();
 
             if files_scanned % 400 == 0 {
+                let items_found = match kind {
+                    LargeScanKind::Files => file_items.len() as u32,
+                    LargeScanKind::Folders => count_large_dirs(&dir_sizes, min_folder_bytes),
+                };
                 on_progress(LargeFileScanProgress {
                     current_path: current_path.clone(),
                     files_scanned,
-                    items_found: file_items.len() as u32,
+                    items_found,
                 });
             }
 
@@ -69,49 +89,38 @@ pub fn scan_large_items(
                 continue;
             }
 
-            let mut parent = path.parent();
-            while let Some(p) = parent {
-                if !is_under_roots(p, &roots) {
-                    break;
+            if kind == LargeScanKind::Folders {
+                let mut parent = path.parent();
+                while let Some(p) = parent {
+                    if !is_under_roots(p, &roots) {
+                        break;
+                    }
+                    *dir_sizes.entry(p.to_path_buf()).or_default() += size;
+                    parent = p.parent();
                 }
-                *dir_sizes.entry(p.to_path_buf()).or_default() += size;
-                parent = p.parent();
-            }
-
-            if size >= min_file_bytes {
+            } else if size >= min_file_bytes {
                 file_items.push(build_file_item(path, size, min_file_mb, &app_index));
             }
         }
     }
 
-    let mut paths_seen: HashSet<String> = file_items.iter().map(|i| i.path.clone()).collect();
-    let mut folder_items: Vec<BrowseItem> = Vec::new();
-
-    let mut dir_candidates: Vec<(PathBuf, u64)> = dir_sizes
-        .into_iter()
-        .filter(|(_, size)| *size >= min_folder_bytes)
-        .collect();
-    dir_candidates.sort_by(|a, b| b.1.cmp(&a.1));
-
-    for (dir_path, size) in dir_candidates {
-        if !dir_path.is_dir() {
-            continue;
+    let items = match kind {
+        LargeScanKind::Folders => build_folder_items(
+            dir_sizes,
+            min_folder_bytes,
+            min_folder_mb,
+            &app_index,
+        ),
+        LargeScanKind::Files => {
+            file_items.sort_by(|a, b| {
+                b.size_bytes
+                    .cmp(&a.size_bytes)
+                    .then_with(|| a.path.cmp(&b.path))
+            });
+            file_items.truncate(MAX_RESULTS);
+            file_items
         }
-        let path_str = dir_path.to_string_lossy().to_string();
-        if paths_seen.contains(&path_str) {
-            continue;
-        }
-        if is_redundant_folder(&dir_path, &folder_items) {
-            continue;
-        }
-        paths_seen.insert(path_str.clone());
-        folder_items.push(build_folder_item(&dir_path, size, min_folder_mb, &app_index));
-    }
-
-    let mut items = file_items;
-    items.extend(folder_items);
-    items.sort_by(|a, b| b.size_bytes.cmp(&a.size_bytes).then_with(|| a.path.cmp(&b.path)));
-    items.truncate(MAX_RESULTS);
+    };
 
     on_progress(LargeFileScanProgress {
         current_path: if cancelled {
@@ -123,8 +132,14 @@ pub fn scan_large_items(
         items_found: items.len() as u32,
     });
 
+    let scan_kind_label = match kind {
+        LargeScanKind::Folders => "folders",
+        LargeScanKind::Files => "files",
+    };
     let summary = FolderBrowseSummary {
-        path: format!("large-file-scan://file≥{min_file_mb}MB,folder≥{min_folder_mb}MB"),
+        path: format!(
+            "large-file-scan://{scan_kind_label}?file≥{min_file_mb}MB,folder≥{min_folder_mb}MB"
+        ),
         total_bytes: items.iter().map(|i| i.size_bytes).sum(),
         folder_count: items.iter().filter(|i| i.is_directory).count() as u32,
         file_count: items.iter().filter(|i| !i.is_directory).count() as u32,
@@ -134,6 +149,45 @@ pub fn scan_large_items(
     };
 
     Ok((items, summary, files_scanned))
+}
+
+fn count_large_dirs(dir_sizes: &HashMap<PathBuf, u64>, min_folder_bytes: u64) -> u32 {
+    dir_sizes
+        .values()
+        .filter(|size| **size >= min_folder_bytes)
+        .count() as u32
+}
+
+fn build_folder_items(
+    dir_sizes: HashMap<PathBuf, u64>,
+    min_folder_bytes: u64,
+    min_folder_mb: u64,
+    app_index: &AppIndex,
+) -> Vec<BrowseItem> {
+    let mut folder_items: Vec<BrowseItem> = Vec::new();
+    let mut dir_candidates: Vec<(PathBuf, u64)> = dir_sizes
+        .into_iter()
+        .filter(|(_, size)| *size >= min_folder_bytes)
+        .collect();
+    dir_candidates.sort_by(|a, b| b.1.cmp(&a.1));
+
+    for (dir_path, size) in dir_candidates {
+        if !dir_path.is_dir() {
+            continue;
+        }
+        if is_redundant_folder(&dir_path, &folder_items) {
+            continue;
+        }
+        folder_items.push(build_folder_item(&dir_path, size, min_folder_mb, app_index));
+    }
+
+    folder_items.sort_by(|a, b| {
+        b.size_bytes
+            .cmp(&a.size_bytes)
+            .then_with(|| a.path.cmp(&b.path))
+    });
+    folder_items.truncate(MAX_RESULTS);
+    folder_items
 }
 
 fn scan_roots() -> Vec<PathBuf> {

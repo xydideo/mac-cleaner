@@ -7,6 +7,7 @@ mod large_file_scan;
 mod protected_paths;
 mod scan_control;
 mod tray;
+mod window_chrome;
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
@@ -60,6 +61,16 @@ pub struct CleanError {
 #[tauri::command]
 fn get_disk_usage() -> Result<disk::DiskInfo, String> {
     disk::get_disk_info()
+}
+
+#[tauri::command]
+fn toggle_window_height_maximized(window: tauri::WebviewWindow) -> Result<bool, String> {
+    window_chrome::toggle_height_maximized(&window)
+}
+
+#[tauri::command]
+fn reset_window_height_saved() {
+    window_chrome::reset_saved_frame();
 }
 
 #[tauri::command]
@@ -181,20 +192,24 @@ async fn handle_scan(app: &AppHandle, data: &serde_json::Value) -> Result<serde_
     let total_phases = phases.len() as f32;
     let mut cancelled = false;
 
-    for (idx, (phase, label)) in phases.iter().enumerate() {
+    for (idx, (phase, _label)) in phases.iter().enumerate() {
         scan_control::wait_if_paused();
         if scan_control::is_cancelled() {
             cancelled = true;
             break;
         }
 
+        let progress_label = if mode == "deep" {
+            "深度扫描中..."
+        } else if scan_control::is_paused() {
+            "扫描已暂停"
+        } else {
+            "智能扫描中..."
+        };
+
         let progress = ScanProgress {
             phase: phase.to_string(),
-            current_path: if scan_control::is_paused() {
-                "扫描已暂停".into()
-            } else {
-                label.to_string()
-            },
+            current_path: progress_label.to_string(),
             items_found: all_items.len() as u32,
             bytes_found: all_items.iter().map(|i| i.size_bytes).sum(),
             percent: (idx as f32 / total_phases) * 100.0,
@@ -207,7 +222,7 @@ async fn handle_scan(app: &AppHandle, data: &serde_json::Value) -> Result<serde_
             break;
         }
 
-        let items = disk::scan_phase(phase)?;
+        let items = disk::scan_phase(phase, mode == "deep")?;
         all_items.extend(items);
     }
 
@@ -377,13 +392,23 @@ async fn handle_large_file_scan(
         .get("min_folder_bytes")
         .and_then(|v| v.as_u64())
         .unwrap_or(1024 * 1024 * 1024);
+    let scan_kind = data
+        .get("scan_kind")
+        .and_then(|v| v.as_str())
+        .map(large_file_scan::LargeScanKind::parse)
+        .unwrap_or(large_file_scan::LargeScanKind::Folders);
 
     let app_handle = app.clone();
     scan_control::reset();
     let (items, summary, files_scanned) = tauri::async_runtime::spawn_blocking(move || {
-        large_file_scan::scan_large_items(min_file_bytes, min_folder_bytes, |progress| {
-            let _ = app_handle.emit("large_file_scan_progress", &progress);
-        })
+        large_file_scan::scan_large_items(
+            min_file_bytes,
+            min_folder_bytes,
+            scan_kind,
+            |progress| {
+                let _ = app_handle.emit("large_file_scan_progress", &progress);
+            },
+        )
     })
     .await
     .map_err(|e| format!("扫描任务异常: {e}"))??;
@@ -473,7 +498,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![get_disk_usage, exit_app, reveal_in_finder, open_privacy_settings, tauri_message])
+        .invoke_handler(tauri::generate_handler![get_disk_usage, exit_app, reveal_in_finder, open_privacy_settings, toggle_window_height_maximized, reset_window_height_saved, tauri_message])
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main") {
                 apply_native_window_radius(&window);

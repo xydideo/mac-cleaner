@@ -2066,6 +2066,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "objc2-app-kit",
+ "objc2-foundation",
  "objc2-quartz-core",
  "plist",
  "rayon",

@@ -63,6 +63,19 @@
     </div>
 
     <div class="settings-section glass-card">
+      <h3>目录浏览</h3>
+      <div class="setting-row">
+        <span>显示隐藏文件</span>
+        <el-switch
+          v-model="settings.showHiddenFiles"
+          size="small"
+          class="setting-switch"
+        />
+      </div>
+      <p class="setting-hint">开启后，目录模块会列出以 <code>.</code> 开头的隐藏文件与文件夹（如 .git、.npm）。</p>
+    </div>
+
+    <div class="settings-section glass-card">
       <h3>关于</h3>
       <p class="section-desc">{{ APP_NAME_CN }} {{ APP_NAME }} · design by xydideo</p>
     </div>
@@ -160,6 +173,11 @@ const openPrivacySettings = async () => {
   margin: 4px 0 0;
   font-size: 11px;
   color: $text-muted;
+
+  code {
+    font-size: inherit;
+    color: $text-secondary;
+  }
 }
 
 .setting-select {
@@ -172,5 +190,9 @@ const openPrivacySettings = async () => {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px 16px;
+}
+
+.setting-switch {
+  flex-shrink: 0;
 }
 </style>

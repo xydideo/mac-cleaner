@@ -21,7 +21,7 @@
 import AppHeader from "./components/AppHeader.vue"
 import AppSidebar from "./components/Sidebar.vue"
 
-const cachedViews = ["AppUninstall", "CustomFolder"]
+const cachedViews = ["AppUninstall", "CustomFolder", "LargeFileScan"]
 </script>
 
 <style scoped lang="scss">

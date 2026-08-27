@@ -1,6 +1,6 @@
 {
   "name": "mac-cleaner",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "芒果清理 — 开源 macOS 磁盘清理桌面应用（Tauri + Vue）",
   "type": "module",
   "author": "xydideo",

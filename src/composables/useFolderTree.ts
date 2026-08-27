@@ -7,11 +7,13 @@ export interface FolderTreeNode extends FolderBrowseItem {
   loading: boolean
   childrenLoaded: boolean
   children: FolderTreeNode[]
+  /** 同级原始顺序，避免统计完成后排序抖动 */
+  listOrder: number
   /** 正在精确统计体积（无 5G / 20 万限制） */
   exactSizing?: boolean
 }
 
-export function createTreeNode(item: BrowseItem, depth = 0): FolderTreeNode {
+export function createTreeNode(item: BrowseItem, depth = 0, listOrder = 0): FolderTreeNode {
   return {
     ...item,
     selected: false,
@@ -20,6 +22,7 @@ export function createTreeNode(item: BrowseItem, depth = 0): FolderTreeNode {
     loading: false,
     childrenLoaded: false,
     children: [],
+    listOrder,
   }
 }
 
@@ -41,9 +44,15 @@ export function sortSiblings(
     let cmp = 0
     switch (sortBy) {
       case "size":
-        if (!a.size_ready && b.size_ready) return 1
-        if (a.size_ready && !b.size_ready) return -1
-        cmp = a.size_bytes - b.size_bytes
+        if (!a.size_ready && !b.size_ready) {
+          cmp = a.listOrder - b.listOrder
+        } else if (!a.size_ready && b.size_ready) {
+          return 1
+        } else if (a.size_ready && !b.size_ready) {
+          return -1
+        } else {
+          cmp = a.size_bytes - b.size_bytes
+        }
         break
       case "time":
         cmp = a.modified.localeCompare(b.modified)
@@ -53,7 +62,8 @@ export function sortSiblings(
         cmp = a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
         break
     }
-    return cmp * dir
+    if (cmp !== 0) return cmp * dir
+    return a.listOrder - b.listOrder
   })
 
   return items
@@ -149,6 +159,7 @@ export function mergeAnalyzedTreeNodes(
             loading: node.loading,
             childrenLoaded: node.childrenLoaded,
             children: node.children,
+            listOrder: node.listOrder,
             exactSizing: node.exactSizing,
           }
         : node

@@ -28,12 +28,6 @@
           </button>
         </el-tooltip>
       </div>
-
-      <div v-if="scanProgress && scanning" class="scan-status glass-card">
-        <el-progress :percentage="Math.round(scanProgress.percent)" :show-text="false" />
-        <span class="scan-path">{{ scanPaused ? "扫描已暂停" : scanProgress.current_path }}</span>
-        <ScanControlButtons :paused="scanPaused" @pause="pauseScan" @resume="resumeScan" />
-      </div>
     </div>
 
     <div class="stats-row">
@@ -85,7 +79,6 @@ import { computed, onMounted, onUnmounted } from "vue"
 import { useRouter } from "vue-router"
 import { Loading } from "@element-plus/icons-vue"
 import DiskRing from "@/components/DiskRing.vue"
-import ScanControlButtons from "@/components/ScanControlButtons.vue"
 import CategoryCard from "@/components/CategoryCard.vue"
 import { useDiskInfo, useScanner } from "@/composables/useScanner"
 import { QUICK_SCAN_SCOPE_TIP, DEEP_SCAN_SCOPE_TIP } from "@/constants/scanScopeTips"
@@ -93,7 +86,7 @@ import { formatSize } from "@/utils/formatSize"
 
 const router = useRouter()
 const { diskInfo, load } = useDiskInfo()
-const { scanning, scanPaused, scanProgress, scan, pauseScan, resumeScan, teardownListeners } = useScanner()
+const { scanning, scan, teardownListeners } = useScanner()
 
 const reclaimableLabel = computed(() => {
   if (!diskInfo.value) return undefined

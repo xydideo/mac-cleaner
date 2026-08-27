@@ -1,20 +1,25 @@
 <template>
   <div class="large-file-scan">
-    <div v-if="scannedOnce && !scanning && items.length" class="warn-banner glass-card">
+    <div v-if="currentItems.length && !scanning" class="warn-banner glass-card">
       <span class="warn-icon">⚠️</span>
       <div class="warn-text">
         <p class="warn-title">删除前请谨慎确认</p>
         <p class="warn-desc">
-          扫描结果可能包含仍在使用的文件或系统目录，请自行判断后再操作。本页仅支持移到废纸篓，可从废纸篓恢复。
+          扫描结果可能包含仍在使用的文件或系统目录，请自行判断后再操作。
         </p>
       </div>
     </div>
 
     <div v-if="scanning" class="scan-panel glass-card panel-loading">
+      <ScanKindSegmented
+        class="scan-panel-tabs"
+        :model-value="scanningKind"
+        disabled
+      />
       <el-icon class="is-loading" :size="36"><Loading /></el-icon>
       <div class="scan-progress-lines">
         <p class="scan-status">
-          {{ scanPaused ? "扫描已暂停" : `正在全盘查找大文件（${largeScanThresholdLabel}）…` }}
+          {{ scanPaused ? "扫描已暂停" : scanStatusText }}
         </p>
         <p
           v-if="scanProgressCurrentPath"
@@ -41,20 +46,27 @@
     </div>
 
     <div
-      v-else-if="items.length"
+      v-else-if="currentItems.length"
       class="result-panel glass-card"
       :class="{ 'is-busy': cleaning }"
     >
       <div class="result-header">
-        <div class="result-summary" :title="scanMetaLabel">
+        <div class="result-summary" :title="currentScanMetaLabel">
           <p class="result-summary-line">
             <span class="summary-size">{{ formatSize(selectedBytes) }}</span>
             <span class="summary-divider">|</span>
-            <span class="summary-detail">已选 / 共 {{ formatSize(totalBytes) }} · {{ items.length }} 项</span>
+            <span class="summary-detail">
+              已选 / 共 {{ formatSize(currentTotalBytes) }} · {{ currentItems.length }} 项
+            </span>
           </p>
         </div>
         <div class="result-actions">
-          <button class="action-btn action-btn--ghost" :disabled="cleaning" @click="runScan">
+          <ScanKindSegmented
+            :model-value="activeTab"
+            :disabled="scanning"
+            @change="onTabChange"
+          />
+          <button class="action-btn action-btn--ghost" :disabled="cleaning" @click="runScan()">
             重新扫描
           </button>
           <button
@@ -85,24 +97,41 @@
               <span
                 v-if="item.app_label"
                 class="app-tag"
-                :class="{ 'is-uninstalled': item.app_installed === false }"
+                :class="{
+                  'is-uninstalled': item.app_installed === false,
+                  'is-system': item.app_label === '系统' || item.protected,
+                }"
                 :title="item.bundle_id ? `Bundle ID: ${item.bundle_id}` : item.app_label"
               >
                 {{ item.app_label }}
               </span>
             </div>
-            <p class="item-path" :title="item.path">{{ item.path }}</p>
+            <button
+              type="button"
+              class="item-path"
+              :title="`${item.path}（点击复制）`"
+              @click="copyItemPath(item.path)"
+            >
+              {{ item.path }}
+            </button>
           </div>
           <div class="item-meta">
             <span class="item-time">{{ item.modified }}</span>
             <span class="item-size">{{ formatSize(item.size_bytes) }}</span>
           </div>
           <div class="item-actions">
+            <button
+              class="path-action"
+              title="在目录模块中打开"
+              @click="openItemDetail(item)"
+            >
+              详情
+            </button>
             <button class="path-action" @click="openInFinder(item.path)">访达</button>
             <button
-              v-if="!item.protected"
               class="path-action path-action--danger"
-              :disabled="cleaning"
+              :title="item.protected ? '系统保护项，不可删除' : '删除'"
+              :disabled="cleaning || item.protected"
               @click="deleteSingle(item)"
             >
               删
@@ -119,24 +148,39 @@
       </Transition>
     </div>
 
-    <div v-else-if="scannedOnce && !scanning" class="empty-panel glass-card">
-      <p class="empty-title">未发现符合阈值的大文件或文件夹</p>
-      <p class="empty-sub">可调整阈值后重新扫描，或检查扫描范围是否覆盖目标路径</p>
-      <p class="scan-meta">{{ scanMetaLabel }}</p>
-      <button class="action-btn action-btn--primary" @click="goSettings">调整阈值</button>
+    <div v-else-if="currentTabScannedOnce" class="empty-panel glass-card">
+      <ScanKindSegmented
+        class="empty-panel-tabs"
+        :model-value="activeTab"
+        @change="onTabChange"
+      />
+      <p class="empty-title">{{ emptyTitle }}</p>
+      <p class="empty-sub">{{ emptySubtitle }}</p>
+      <p class="scan-meta">{{ currentScanMetaLabel }}</p>
+      <div class="empty-actions">
+        <button class="action-btn action-btn--ghost" @click="runScan()">重新扫描</button>
+        <button class="action-btn action-btn--primary" @click="goSettings">调整阈值</button>
+      </div>
     </div>
 
     <div v-else class="idle-panel glass-card">
+      <ScanKindSegmented
+        class="idle-panel-tabs"
+        :model-value="activeTab"
+        @change="onTabChange"
+      />
       <span class="idle-icon">🔍</span>
       <p class="idle-title">查找占用空间的大文件与文件夹</p>
-      <p class="idle-sub">点击「开始扫描」后将在后台遍历主目录、应用程序、系统与磁盘卷</p>
+      <p class="idle-sub">
+        默认先扫描大文件夹；切换至「大文件」将单独全盘扫描，<br />通常需要 10 分钟以上，甚至可能更久
+      </p>
       <p class="idle-scope">扫描范围：主目录 / 应用程序 / 系统 / 磁盘卷</p>
       <div class="idle-threshold-row">
-        <span class="idle-threshold-label">{{ largeScanThresholdLabel }}</span>
+        <span class="idle-threshold-label">{{ currentThresholdLabel }}</span>
         <button class="pill-btn pill-btn--compact" @click="goSettings">阈值配置</button>
       </div>
       <div class="idle-actions">
-        <button class="action-btn action-btn--primary" @click="runScan">开始扫描</button>
+        <button class="action-btn action-btn--primary" @click="startInitialScan">开始扫描</button>
       </div>
     </div>
   </div>
@@ -149,57 +193,101 @@ import { computed, onUnmounted, ref } from "vue"
 import { useRouter } from "vue-router"
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import { Loading } from "@element-plus/icons-vue"
-import { ElMessage } from "element-plus"
+import { ElMessage, ElMessageBox } from "element-plus"
 import ScanControlButtons from "@/components/ScanControlButtons.vue"
-import { scanLargeFiles } from "@/api/folder"
+import ScanKindSegmented from "@/components/ScanKindSegmented.vue"
+import { scanLargeFiles, type LargeScanKind } from "@/api/folder"
+import {
+  useLargeFileScanCache,
+  type LargeScanItem,
+  type LargeTabScanState,
+} from "@/composables/useLargeFileScanCache"
 import { useAppSettings } from "@/composables/useAppSettings"
 import { useCleanAction } from "@/composables/useCleanAction"
 import { useScanControl } from "@/composables/useScanControl"
 import { revealInFinder } from "@/utils/finder"
+import { navigateToFolderScan } from "@/utils/folderNavigation"
 import { formatSize } from "@/utils/formatSize"
 import { isTauriRuntime } from "@/utils/tauriPlatform"
-import type { BrowseItem, CleanResult } from "@/types/cleaner"
-
-type ScanItem = BrowseItem & { selected?: boolean }
+import type { CleanResult } from "@/types/cleaner"
 
 const router = useRouter()
-const { largeFileBytes, largeFolderBytes, largeScanThresholdLabel } = useAppSettings()
+const { largeFileBytes, largeFolderBytes, formatThresholdMB, settings } = useAppSettings()
+const { activeTab, tabState } = useLargeFileScanCache()
 const { scanPaused, resetScanControlState, resetScanBackend, pauseScan, resumeScan, cancelScan } =
   useScanControl()
 const { cleaning, cleaningText, cleanWithConfirm } = useCleanAction()
 
 const scanning = ref(false)
+const scanningKind = ref<LargeScanKind>("folders")
 const stopping = ref(false)
 const scanStoppedByUser = ref(false)
-const scannedOnce = ref(false)
-const items = ref<ScanItem[]>([])
-const totalBytes = ref(0)
-const filesScanned = ref(0)
-const scannedAt = ref<Date | null>(null)
 const scanProgressCurrentPath = ref("")
 const scanProgressFilesScanned = ref(0)
 const scanProgressItemsFound = ref(0)
 let progressUnlisten: UnlistenFn | null = null
 
+const currentState = computed(() => tabState(activeTab.value).value)
+const currentItems = computed(() => currentState.value.items)
+const currentTotalBytes = computed(() => currentState.value.totalBytes)
+const currentTabScannedOnce = computed(() => currentState.value.scannedOnce)
+
 const sortedItems = computed(() =>
-  [...items.value].sort((a, b) => b.size_bytes - a.size_bytes || a.path.localeCompare(b.path))
+  [...currentItems.value].sort((a, b) => b.size_bytes - a.size_bytes || a.path.localeCompare(b.path))
 )
-const selectedCount = computed(() => items.value.filter((i) => i.selected && !i.protected).length)
+const selectedCount = computed(() =>
+  currentItems.value.filter((i) => i.selected && !i.protected).length
+)
 const selectedBytes = computed(() =>
-  items.value.filter((i) => i.selected && !i.protected).reduce((s, i) => s + i.size_bytes, 0)
+  currentItems.value
+    .filter((i) => i.selected && !i.protected)
+    .reduce((s, i) => s + i.size_bytes, 0)
 )
-const scannedAtLabel = computed(() => {
-  if (!scannedAt.value) return "—"
-  const d = scannedAt.value
+
+const formatScannedAt = (date: Date | null) => {
+  if (!date) return "—"
   const pad = (n: number) => String(n).padStart(2, "0")
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
-})
-const filesScannedLabel = computed(() => filesScanned.value.toLocaleString("zh-CN"))
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+const buildScanMetaLabel = (state: LargeTabScanState, kind: LargeScanKind) => {
+  const kindLabel = kind === "folders" ? "大文件夹" : "大文件"
+  return `${kindLabel}扫描 ${formatScannedAt(state.scannedAt)} · 共扫描 ${state.filesScanned.toLocaleString("zh-CN")} 个文件`
+}
+
+const currentScanMetaLabel = computed(() => buildScanMetaLabel(currentState.value, activeTab.value))
+
+const folderThresholdLabel = computed(
+  () => `大文件夹阈值：≥ ${formatThresholdMB(settings.value.largeFolderMB)}`
+)
+const fileThresholdLabel = computed(
+  () => `大文件阈值：≥ ${formatThresholdMB(settings.value.largeFileMB)}`
+)
+const currentThresholdLabel = computed(() =>
+  activeTab.value === "folders" ? folderThresholdLabel.value : fileThresholdLabel.value
+)
+
 const scanProgressFilesScannedLabel = computed(() =>
   scanProgressFilesScanned.value.toLocaleString("zh-CN")
 )
-const scanMetaLabel = computed(() =>
-  `本次扫描 ${scannedAtLabel.value} · 共扫描 ${filesScannedLabel.value} 个文件`
+
+const scanStatusText = computed(() => {
+  if (scanningKind.value === "folders") {
+    return `正在全盘查找大文件夹（${folderThresholdLabel.value}）…`
+  }
+  return `正在全盘查找大文件（${fileThresholdLabel.value}）…，预计需要 10 分钟以上`
+})
+
+const emptyTitle = computed(() =>
+  activeTab.value === "folders"
+    ? "未发现符合阈值的大文件夹"
+    : "未发现符合阈值的大文件"
+)
+
+const emptySubtitle = computed(() =>
+  activeTab.value === "folders"
+    ? "可调整文件夹阈值后重新扫描，或切换到「大文件」单独查找"
+    : "可调整文件阈值后重新扫描；全盘文件扫描耗时较长，请耐心等待"
 )
 
 const goSettings = () => {
@@ -207,26 +295,30 @@ const goSettings = () => {
 }
 
 const applyScanResult = (
+  kind: LargeScanKind,
   result: Awaited<ReturnType<typeof scanLargeFiles>>,
   options: { stoppedEarly?: boolean } = {}
 ) => {
-  items.value = result.items.map((item) => ({ ...item, selected: false }))
-  totalBytes.value = result.summary.total_bytes
-  filesScanned.value = result.files_scanned
-  scannedAt.value = new Date()
-  scannedOnce.value = true
+  const state = tabState(kind).value
+  state.items = result.items.map((item) => ({ ...item, selected: false }))
+  state.totalBytes = result.summary.total_bytes
+  state.filesScanned = result.files_scanned
+  state.scannedAt = new Date()
+  state.scannedOnce = true
+
+  const kindLabel = kind === "folders" ? "大文件夹" : "大文件"
 
   if (options.stoppedEarly) {
     if (result.items.length === 0) {
-      ElMessage.info("扫描已结束，暂未发现符合阈值的大文件或文件夹")
+      ElMessage.info(`扫描已结束，暂未发现符合阈值的${kindLabel}`)
     } else {
-      ElMessage.success(`扫描已结束，共找到 ${result.items.length} 项`)
+      ElMessage.success(`扫描已结束，共找到 ${result.items.length} 项${kindLabel}`)
     }
     return
   }
 
   if (result.items.length === 0) {
-    ElMessage.info(`未发现符合 ${largeScanThresholdLabel.value} 的文件或文件夹`)
+    ElMessage.info(`未发现符合阈值的${kindLabel}`)
   }
 }
 
@@ -243,10 +335,11 @@ const stopScan = async () => {
   }
 }
 
-const runScan = async () => {
+const runScan = async (kind: LargeScanKind = activeTab.value) => {
   if (!isTauriRuntime() || scanning.value) return
 
   scanning.value = true
+  scanningKind.value = kind
   stopping.value = false
   scanStoppedByUser.value = false
   await resetScanBackend()
@@ -262,15 +355,15 @@ const runScan = async () => {
   }>("large_file_scan_progress", (event) => {
     scanProgressCurrentPath.value = event.payload.current_path
     scanProgressFilesScanned.value = event.payload.files_scanned
-    filesScanned.value = event.payload.files_scanned
+    tabState(scanningKind.value).value.filesScanned = event.payload.files_scanned
     if (event.payload.items_found !== scanProgressItemsFound.value) {
       scanProgressItemsFound.value = event.payload.items_found
     }
   })
 
   try {
-    const result = await scanLargeFiles(largeFileBytes.value, largeFolderBytes.value)
-    applyScanResult(result, { stoppedEarly: scanStoppedByUser.value })
+    const result = await scanLargeFiles(largeFileBytes.value, largeFolderBytes.value, kind)
+    applyScanResult(kind, result, { stoppedEarly: scanStoppedByUser.value })
   } catch (e) {
     ElMessage.error(String(e))
   } finally {
@@ -285,7 +378,40 @@ const runScan = async () => {
   }
 }
 
-const buildDeleteMessage = (targets: ScanItem[]) => {
+const startInitialScan = () => {
+  activeTab.value = "folders"
+  void runScan("folders")
+}
+
+const confirmFilesScan = () =>
+  ElMessageBox.confirm(
+    "大文件扫描需要再次遍历全盘文件，通常需要 10 分钟以上，甚至可能更久。是否现在开始？",
+    "大文件扫描耗时较长",
+    {
+      confirmButtonText: "开始扫描",
+      cancelButtonText: "稍后",
+      type: "warning",
+    }
+  )
+
+const onTabChange = async (tab: LargeScanKind) => {
+  if (tab === activeTab.value || scanning.value) return
+
+  if (tab === "files" && !tabState("files").value.scannedOnce) {
+    try {
+      await confirmFilesScan()
+    } catch {
+      return
+    }
+    activeTab.value = tab
+    await runScan("files")
+    return
+  }
+
+  activeTab.value = tab
+}
+
+const buildDeleteMessage = (targets: LargeScanItem[]) => {
   const list = targets
     .slice(0, 8)
     .map((item) => `· ${item.path}`)
@@ -296,11 +422,12 @@ const buildDeleteMessage = (targets: ScanItem[]) => {
 
 const afterCleanSuccess = (result: CleanResult) => {
   const removed = new Set(result.success)
-  items.value = items.value.filter((item) => !removed.has(item.path))
-  totalBytes.value = items.value.reduce((sum, item) => sum + item.size_bytes, 0)
+  const state = currentState.value
+  state.items = state.items.filter((item) => !removed.has(item.path))
+  state.totalBytes = state.items.reduce((sum, item) => sum + item.size_bytes, 0)
 }
 
-const deleteTargets = async (targets: ScanItem[]) => {
+const deleteTargets = async (targets: LargeScanItem[]) => {
   const deletable = targets.filter((item) => !item.protected)
   if (!deletable.length) return
   await cleanWithConfirm({
@@ -313,12 +440,12 @@ const deleteTargets = async (targets: ScanItem[]) => {
   })
 }
 
-const deleteSingle = async (item: ScanItem) => {
+const deleteSingle = async (item: LargeScanItem) => {
   await deleteTargets([item])
 }
 
 const handleCleanTrash = async () => {
-  const targets = items.value.filter((item) => item.selected && !item.protected)
+  const targets = currentItems.value.filter((item) => item.selected && !item.protected)
   if (!targets.length) return
   await deleteTargets(targets)
 }
@@ -328,6 +455,27 @@ const openInFinder = async (path: string) => {
     await revealInFinder(path)
   } catch (e) {
     ElMessage.error(String(e))
+  }
+}
+
+const openItemDetail = (item: LargeScanItem) => {
+  const focusPath = item.is_directory
+    ? item.path
+    : item.path.slice(0, item.path.lastIndexOf("/"))
+
+  if (!focusPath) return
+
+  navigateToFolderScan(router, focusPath, {
+    highlight: item.is_directory ? undefined : item.path,
+  })
+}
+
+const copyItemPath = async (path: string) => {
+  try {
+    await navigator.clipboard.writeText(path)
+    ElMessage.success("路径已复制")
+  } catch {
+    ElMessage.error("复制失败")
   }
 }
 
@@ -402,6 +550,12 @@ onUnmounted(() => {
   color: $text-secondary;
 }
 
+.scan-panel-tabs,
+.idle-panel-tabs,
+.empty-panel-tabs {
+  margin-bottom: 16px;
+}
+
 .scan-progress-lines {
   display: flex;
   flex-direction: column;
@@ -471,7 +625,7 @@ onUnmounted(() => {
   margin: 8px 0 0;
   font-size: 13px;
   color: $text-muted;
-  max-width: 480px;
+  max-width: 520px;
 }
 
 .idle-scope {
@@ -514,7 +668,11 @@ onUnmounted(() => {
   color: $text-primary;
 }
 
-.empty-panel .action-btn {
+.empty-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   margin-top: 16px;
 }
 
@@ -572,6 +730,7 @@ onUnmounted(() => {
 
 .result-actions {
   display: flex;
+  align-items: center;
   gap: 8px;
   flex-shrink: 0;
 }
@@ -634,6 +793,11 @@ onUnmounted(() => {
   color: $color-blue;
   flex-shrink: 0;
 
+  &.is-system {
+    background: rgba(239, 68, 68, 0.15);
+    color: $color-red;
+  }
+
   &.is-uninstalled {
     background: rgba(245, 158, 11, 0.15);
     color: $color-amber;
@@ -641,11 +805,22 @@ onUnmounted(() => {
 }
 
 .item-path {
+  display: block;
+  width: 100%;
   margin: 4px 0 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  text-align: left;
   font-size: 11px;
   line-height: 1.45;
   color: $text-muted;
   word-break: break-all;
+  cursor: pointer;
+
+  &:hover {
+    color: $text-secondary;
+  }
 }
 
 .item-meta {

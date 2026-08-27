@@ -1,8 +1,8 @@
 use crate::app_resolver::AppIndex;
 use crate::ScanItem;
 use crate::scan_control;
-use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use sysinfo::Disks;
 use walkdir::WalkDir;
@@ -124,7 +124,7 @@ fn scan_subdirs_sorted(dir: &Path, skip_hidden: bool) -> Vec<(PathBuf, String, u
     with_sizes
 }
 
-pub fn scan_phase(phase: &str) -> Result<Vec<ScanItem>, String> {
+pub fn scan_phase(phase: &str, deep: bool) -> Result<Vec<ScanItem>, String> {
     let home = dirs_home();
     let mut items = Vec::new();
 
@@ -159,6 +159,9 @@ pub fn scan_phase(phase: &str) -> Result<Vec<ScanItem>, String> {
                         app_installed: Some(resolved.installed),
                     });
                 }
+            }
+            if deep {
+                items.extend(scan_update_cache(&home, &app_index));
             }
         }
         "scanning_logs" => {
@@ -320,6 +323,242 @@ pub fn scan_phase(phase: &str) -> Result<Vec<ScanItem>, String> {
     }
 
     Ok(items)
+}
+
+/// 深度扫描：Application Support 内应用更新缓存与更新包（并入「应用缓存」阶段，无独立进度）
+const MIN_UPDATE_ITEM_BYTES: u64 = 1024 * 1024;
+const UPDATE_SCAN_MAX_DEPTH: usize = 12;
+/// 路径中任一层目录名命中即视为更新相关（不区分大小写）
+const UPDATE_PATH_KEYWORDS_EXACT: &[&str] = &[
+    "update",
+    "updates",
+    "pending",
+    "download",
+    "downloads",
+    "staging",
+    "patch",
+    "upgrade",
+    "sparkle",
+];
+const UPDATE_PATH_KEYWORDS_PARTIAL: &[&str] = &[
+    "updater",
+    "googleupdater",
+    "autoupdate",
+    "auto-update",
+    "crx_cache",
+    "installer",
+    "mau",
+    "cryptex",
+];
+/// 整目录作为「更新缓存」上报的文件夹名
+const UPDATE_CACHE_DIR_NAMES: &[&str] = &["crx_cache", "pending"];
+const FIXED_UPDATE_CACHE_PATHS: &[&str] = &[
+    "Library/Application Support/Google/GoogleUpdater/crx_cache",
+    "Library/Application Support/Microsoft/MAU2.0",
+];
+const UPDATE_PACKAGE_EXTS: &[&str] = &["dmg", "pkg", "zip", "crx", "ipa"];
+
+fn scan_update_cache(home: &Path, app_index: &AppIndex) -> Vec<ScanItem> {
+    let mut items = Vec::new();
+    let mut seen_paths = HashSet::new();
+    let mut cache_dir_roots = HashSet::new();
+
+    for rel in FIXED_UPDATE_CACHE_PATHS {
+        let path = home.join(rel);
+        push_update_cache_dir(
+            &mut items,
+            &mut seen_paths,
+            &mut cache_dir_roots,
+            &path,
+            app_index,
+            "更新缓存",
+        );
+    }
+
+    let app_support = home.join("Library/Application Support");
+    if !app_support.exists() {
+        items.sort_by(|a, b| b.size_bytes.cmp(&a.size_bytes).then_with(|| a.title.cmp(&b.title)));
+        return items;
+    }
+
+    let mut index = 0u64;
+    for entry in WalkDir::new(&app_support)
+        .max_depth(UPDATE_SCAN_MAX_DEPTH)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        if scan_control::checkpoint(index) {
+            break;
+        }
+        index += 1;
+
+        let path = entry.path();
+        if path == app_support.as_path() {
+            continue;
+        }
+
+        if entry.file_type().is_dir() {
+            if is_update_cache_dir(path) {
+                push_update_cache_dir(
+                    &mut items,
+                    &mut seen_paths,
+                    &mut cache_dir_roots,
+                    path,
+                    app_index,
+                    "更新缓存",
+                );
+            }
+            continue;
+        }
+
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        if is_inside_any(path, &cache_dir_roots) {
+            continue;
+        }
+        if !is_update_package_file(path) {
+            continue;
+        }
+        if !is_update_related_path(path, &app_support) {
+            continue;
+        }
+
+        push_update_package_file(&mut items, &mut seen_paths, path, app_index);
+    }
+
+    items.sort_by(|a, b| b.size_bytes.cmp(&a.size_bytes).then_with(|| a.title.cmp(&b.title)));
+    items
+}
+
+fn is_update_cache_dir(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|n| n.to_str())
+        .map(|name| {
+            let lower = name.to_lowercase();
+            UPDATE_CACHE_DIR_NAMES
+                .iter()
+                .any(|n| lower == *n || lower.contains(n))
+        })
+        .unwrap_or(false)
+}
+
+fn path_component_matches_update_keyword(component: &str) -> bool {
+    let lower = component.to_lowercase();
+    if UPDATE_PATH_KEYWORDS_EXACT.iter().any(|kw| lower == *kw) {
+        return true;
+    }
+    UPDATE_PATH_KEYWORDS_PARTIAL
+        .iter()
+        .any(|kw| lower.contains(kw))
+}
+
+fn is_update_related_path(path: &Path, app_support: &Path) -> bool {
+    let Ok(rel) = path.strip_prefix(app_support) else {
+        return false;
+    };
+    rel.components().any(|component| {
+        component
+            .as_os_str()
+            .to_str()
+            .map(path_component_matches_update_keyword)
+            .unwrap_or(false)
+    })
+}
+
+fn is_update_package_file(path: &Path) -> bool {
+    let ext = match path.extension().and_then(|e| e.to_str()) {
+        Some(ext) => ext.to_lowercase(),
+        None => return false,
+    };
+    if !UPDATE_PACKAGE_EXTS.contains(&ext.as_str()) {
+        return false;
+    }
+    path.metadata()
+        .map(|m| m.len() >= MIN_UPDATE_ITEM_BYTES)
+        .unwrap_or(false)
+}
+
+fn is_inside_any(path: &Path, roots: &HashSet<String>) -> bool {
+    let path_str = path.to_string_lossy();
+    roots.iter().any(|root| path_str.starts_with(root))
+}
+
+fn push_update_cache_dir(
+    items: &mut Vec<ScanItem>,
+    seen_paths: &mut HashSet<String>,
+    cache_dir_roots: &mut HashSet<String>,
+    path: &Path,
+    app_index: &AppIndex,
+    kind_label: &str,
+) {
+    if !path.is_dir() {
+        return;
+    }
+    let path_str = path.to_string_lossy().to_string();
+    if !seen_paths.insert(path_str.clone()) {
+        return;
+    }
+
+    let size = safe_dir_size(path);
+    if size < MIN_UPDATE_ITEM_BYTES {
+        return;
+    }
+
+    cache_dir_roots.insert(format!("{path_str}/"));
+
+    let resolved = app_index.resolve_for_path(path);
+    items.push(ScanItem {
+        id: stable_item_id("update_cache", &path_str),
+        path: path_str,
+        size_bytes: size,
+        category: "cache".into(),
+        risk: "low".into(),
+        title: format!("{} {}", resolved.app_name, kind_label),
+        description: "应用更新下载缓存，删除后不影响正常使用，下次更新时会重新下载".into(),
+        last_modified: modified_str(path),
+        app_name: Some(resolved.app_name),
+        app_label: Some(resolved.app_label),
+        bundle_id: resolved.bundle_id,
+        app_installed: Some(resolved.installed),
+    });
+}
+
+fn push_update_package_file(
+    items: &mut Vec<ScanItem>,
+    seen_paths: &mut HashSet<String>,
+    path: &Path,
+    app_index: &AppIndex,
+) {
+    let path_str = path.to_string_lossy().to_string();
+    if !seen_paths.insert(path_str.clone()) {
+        return;
+    }
+
+    let size = path.metadata().map(|m| m.len()).unwrap_or(0);
+    if size < MIN_UPDATE_ITEM_BYTES {
+        return;
+    }
+
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "更新包".into());
+    let resolved = app_index.resolve_for_path(path);
+    items.push(ScanItem {
+        id: stable_item_id("update_package", &path_str),
+        path: path_str,
+        size_bytes: size,
+        category: "cache".into(),
+        risk: "low".into(),
+        title: format!("{} 更新包 · {name}", resolved.app_name),
+        description: "Application Support 中的应用更新安装包，删除后不影响已安装版本".into(),
+        last_modified: modified_str(path),
+        app_name: Some(resolved.app_name),
+        app_label: Some(resolved.app_label),
+        bundle_id: resolved.bundle_id,
+        app_installed: Some(resolved.installed),
+    });
 }
 
 fn modified_str(path: &Path) -> String {

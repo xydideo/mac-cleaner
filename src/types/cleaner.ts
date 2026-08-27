@@ -13,7 +13,7 @@ export interface BrowseItem {
   is_directory: boolean
   size_bytes: number
   size_ready: boolean
-  /** 深扫超过 5GB 提前终止 */
+  /** 深扫未完整统计（超过 5GB 或 20 万文件）时为 true，展示为 >已扫描体积 */
   size_capped?: boolean
   modified: string
   risk: "low" | "medium" | "high"

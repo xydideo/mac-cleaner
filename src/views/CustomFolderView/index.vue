@@ -89,7 +89,7 @@
         <div class="result-header">
           <div class="result-header-left">
             <div class="result-head-row">
-              <span class="summary-size">{{ formatSize(summary?.total_bytes ?? 0) }}</span>
+              <span class="summary-size">{{ summarySizeLabel }}</span>
               <div class="list-controls">
                 <span class="control-label">排序</span>
                 <button
@@ -100,6 +100,16 @@
                   @click="setSortBy(opt.key)"
                 >
                   {{ opt.label }}{{ sortBy === opt.key ? (sortAsc ? " ↑" : " ↓") : "" }}
+                </button>
+                <span class="list-controls-divider" aria-hidden="true" />
+                <button
+                  type="button"
+                  class="pill-btn pill-btn--compact"
+                  :class="{ 'is-active': showAllPaths }"
+                  title="显示/隐藏所有项的完整路径"
+                  @click="toggleShowAllPaths"
+                >
+                  路径
                 </button>
               </div>
             </div>
@@ -161,15 +171,15 @@
               v-if="row.node.is_directory"
               type="button"
               class="tree-toggle"
-              :class="{ 'is-expanded': row.node.expanded && !row.node.loading }"
+              :class="{ 'is-expanded': row.node.expanded, 'is-loading': row.node.loading }"
               :disabled="cleaning"
               :aria-label="row.node.expanded ? '折叠' : '展开'"
               @click.stop="toggleExpand(row.node)"
             >
+              <el-icon class="tree-toggle-chevron"><CaretRight /></el-icon>
               <el-icon v-if="row.node.loading" class="tree-toggle-loading is-loading" :size="11">
                 <Loading />
               </el-icon>
-              <el-icon v-else class="tree-toggle-chevron"><CaretRight /></el-icon>
             </button>
             <span v-else class="tree-toggle tree-toggle--placeholder" aria-hidden="true" />
             <el-checkbox
@@ -202,6 +212,15 @@
                 </button>
                 <span v-else class="item-name" :title="row.node.name">{{ row.node.name }}</span>
               </div>
+              <button
+                v-if="showAllPaths"
+                type="button"
+                class="item-path-line"
+                :title="`${row.node.path}（点击复制）`"
+                @click.stop="copyItemPath(row.node.path)"
+              >
+                {{ row.node.path }}
+              </button>
             </div>
             <div class="item-side">
               <div class="item-side-main">
@@ -214,7 +233,13 @@
                       'is-capped': row.node.size_capped && !row.node.exactSizing,
                     }"
                   >
-                    {{ row.node.exactSizing ? "统计中…" : formatBrowseSize(row.node) }}
+                    {{
+                      isRefreshingPath(row.node.path)
+                        ? "统计中…"
+                        : row.node.exactSizing
+                          ? "统计中…"
+                          : formatBrowseSize(row.node)
+                    }}
                   </span>
                   <button
                     v-if="row.node.is_directory && row.node.size_capped && !row.node.exactSizing"
@@ -227,6 +252,14 @@
                   </button>
                 </span>
                 <div class="item-side-actions">
+                  <button
+                    class="path-action"
+                    title="重新计算大小"
+                    :disabled="cleaning || isRefreshingPath(row.node.path)"
+                    @click.stop="refreshItem(row.node)"
+                  >
+                    刷新
+                  </button>
                   <button
                     class="path-action"
                     title="在目录模块中打开"
@@ -242,9 +275,9 @@
                     访达
                   </button>
                   <button
-                    v-if="!row.node.protected"
                     class="path-action path-action--danger"
-                    title="删除"
+                    :title="row.node.protected ? '系统保护项，不可删除' : '删除'"
+                    :disabled="cleaning || row.node.protected"
                     @click.stop="deleteSingleItem(row.node)"
                   >
                     删
@@ -286,6 +319,7 @@ import {
 } from "@/api/folder"
 import { cleanPaths } from "@/api/cleaner"
 import ScanControlButtons from "@/components/ScanControlButtons.vue"
+import { useAppSettings } from "@/composables/useAppSettings"
 import { useScanControl } from "@/composables/useScanControl"
 import {
   useFolderSessionCache,
@@ -302,7 +336,7 @@ import {
   type FolderTreeNode,
 } from "@/composables/useFolderTree"
 import { revealInFinder } from "@/utils/finder"
-import { formatSize, formatBrowseSize } from "@/utils/formatSize"
+import { formatBrowseSize, formatAggregateSize } from "@/utils/formatSize"
 import { imagePreviewSrc, isImageFile } from "@/utils/imageFile"
 import { notifyCleanResult } from "@/utils/cleanResult"
 import { isTauriRuntime } from "@/utils/tauriPlatform"
@@ -318,7 +352,12 @@ const {
   clearPageCache,
   invalidatePath,
 } = useFolderSessionCache()
+const { settings } = useAppSettings()
 const { scanPaused, resetScanBackend, pauseScan, resumeScan } = useScanControl()
+
+const browseOptions = computed(() => ({
+  showHidden: settings.value.showHiddenFiles,
+}))
 
 const targetFolder = ref<string | null>(null)
 const highlightPath = ref<string | null>(null)
@@ -338,6 +377,8 @@ const folderShortcuts = ref<FolderShortcut[]>([])
 const lastSelectedPath = ref<string | null>(null)
 const folderNavStack = ref<string[]>([])
 const failedThumbIds = ref(new Set<string>())
+const showAllPaths = ref(false)
+const refreshingPaths = ref(new Set<string>())
 let analyzeSession = 0
 
 const canGoBack = computed(() => folderNavStack.value.length > 0)
@@ -406,14 +447,25 @@ const displayRows = computed(() =>
 )
 
 const selectedCount = computed(() => allLoadedNodes.value.filter((i) => i.selected).length)
-const totalSelectedBytes = computed(() =>
-  allLoadedNodes.value.filter((i) => i.selected).reduce((s, i) => s + i.size_bytes, 0)
-)
+
+const summarySizeLabel = computed(() => {
+  const ready = allLoadedNodes.value.filter((i) => i.size_ready)
+  const total = ready.reduce((s, i) => s + i.size_bytes, 0)
+  const hasCapped = ready.some((i) => i.size_capped)
+  return formatAggregateSize(total, { hasCapped })
+})
+
+const selectedSizeLabel = computed(() => {
+  const selected = allLoadedNodes.value.filter((i) => i.selected)
+  const total = selected.reduce((s, i) => s + i.size_bytes, 0)
+  const hasCapped = selected.some((i) => i.size_capped)
+  return formatAggregateSize(total, { hasCapped })
+})
 
 const summaryLabelFull = computed(() => {
   const parts = [
     `已加载 ${summary.value?.folder_count ?? 0} 个文件夹 · ${summary.value?.file_count ?? 0} 个文件`,
-    `已选 ${selectedCount.value} 项 · ${formatSize(totalSelectedBytes.value)}`,
+    `已选 ${selectedCount.value} 项 · ${selectedSizeLabel.value}`,
   ]
   if (analyzingCount.value > 0) {
     parts.push(scanPaused.value ? "计算已暂停" : `${analyzingCount.value} 项计算中…`)
@@ -567,6 +619,44 @@ const computeExactSize = async (node: FolderTreeNode) => {
   }
 }
 
+const toggleShowAllPaths = () => {
+  showAllPaths.value = !showAllPaths.value
+}
+
+const copyItemPath = async (path: string) => {
+  try {
+    await navigator.clipboard.writeText(path)
+    ElMessage.success("路径已复制")
+  } catch {
+    ElMessage.error("复制失败")
+  }
+}
+
+const isRefreshingPath = (path: string) => refreshingPaths.value.has(path)
+
+const refreshItem = async (node: FolderTreeNode) => {
+  if (cleaning.value || isRefreshingPath(node.path)) return
+
+  const next = new Set(refreshingPaths.value)
+  next.add(node.path)
+  refreshingPaths.value = next
+
+  try {
+    const { items } = await analyzeFolderItems([node.path])
+    if (!items.length) {
+      ElMessage.warning("无法刷新该项")
+      return
+    }
+    mergeAnalyzedItems(items)
+  } catch (e) {
+    ElMessage.error(String(e))
+  } finally {
+    const done = new Set(refreshingPaths.value)
+    done.delete(node.path)
+    refreshingPaths.value = done
+  }
+}
+
 const toggleExpand = async (node: FolderTreeNode) => {
   if (!node.is_directory || cleaning.value) return
 
@@ -582,18 +672,20 @@ const toggleExpand = async (node: FolderTreeNode) => {
     return
   }
 
+  node.expanded = true
   node.loading = true
   const session = analyzeSession
   try {
-    const result = await browseFolder(node.path)
+    const result = await browseFolder(node.path, browseOptions.value)
     if (session !== analyzeSession) return
-    node.children = result.items.map((item) => createTreeNode(item, node.depth + 1))
+    node.children = result.items.map((item, index) =>
+      createTreeNode(item, node.depth + 1, index)
+    )
     node.childrenLoaded = true
-    node.expanded = true
-    recomputeSummary()
     persistCurrentPage()
     void analyzePendingFolders(session)
   } catch (e) {
+    node.expanded = false
     ElMessage.error(String(e))
   } finally {
     if (session === analyzeSession) {
@@ -645,6 +737,7 @@ const restoreTreeNode = (node: FolderTreeNode): FolderTreeNode => ({
   size_ready: node.size_ready ?? node.is_directory === false,
   size_capped: node.size_capped ?? false,
   protected: node.protected ?? false,
+  listOrder: node.listOrder ?? 0,
   loading: false,
   children: (node.children ?? []).map(restoreTreeNode),
   exactSizing: false,
@@ -755,9 +848,9 @@ const runBrowse = async () => {
   resetHeaderCollapse()
   await resetScanBackend()
   try {
-    const result = await browseFolder(targetFolder.value)
+    const result = await browseFolder(targetFolder.value, browseOptions.value)
     if (session !== analyzeSession) return
-    treeNodes.value = result.items.map((item) => createTreeNode(item, 0))
+    treeNodes.value = result.items.map((item, index) => createTreeNode(item, 0, index))
     summary.value = result.summary
     scannedOnce.value = true
     persistCurrentPage()
@@ -770,6 +863,15 @@ const runBrowse = async () => {
   }
   void analyzePendingFolders(session)
 }
+
+watch(
+  () => settings.value.showHiddenFiles,
+  () => {
+    if (targetFolder.value && scannedOnce.value) {
+      void runBrowse()
+    }
+  }
+)
 
 const onRefreshList = async () => {
   await runBrowse()
@@ -808,11 +910,9 @@ const openItemDetail = async (item: FolderTreeNode) => {
 }
 
 const formatSelectedSizeLabel = (items: FolderTreeNode[]) => {
-  if (items.some((i) => i.size_capped)) {
-    const known = items.filter((i) => !i.size_capped).reduce((s, i) => s + i.size_bytes, 0)
-    return known > 0 ? `${formatSize(known)} + >5G` : ">5G（体积未完全统计）"
-  }
-  return formatSize(items.reduce((s, i) => s + i.size_bytes, 0))
+  const total = items.reduce((s, i) => s + i.size_bytes, 0)
+  const hasCapped = items.some((i) => i.size_capped)
+  return formatAggregateSize(total, { hasCapped })
 }
 
 const confirmDeleteItems = async (
@@ -1355,7 +1455,6 @@ watch(
   flex: 1;
   overflow-y: auto;
   padding: 0 8px;
-  scroll-behavior: smooth;
   user-select: none;
 }
 
@@ -1469,6 +1568,10 @@ $tree-indent: 14px;
     color: #c4b5fd;
   }
 
+  &.is-loading .tree-toggle-chevron {
+    opacity: 0.35;
+  }
+
   &:disabled {
     cursor: not-allowed;
     opacity: 0.45;
@@ -1503,6 +1606,9 @@ $tree-indent: 14px;
 }
 
 .tree-toggle-loading {
+  position: absolute;
+  inset: 0;
+  margin: auto;
   color: $color-purple;
 }
 
@@ -1533,6 +1639,8 @@ $tree-indent: 14px;
 }
 
 .item-name {
+  flex: 1;
+  min-width: 0;
   font-size: 12px;
   font-weight: 600;
   color: $text-primary;
@@ -1553,6 +1661,28 @@ $tree-indent: 14px;
     &:hover {
       text-decoration: underline;
     }
+  }
+}
+
+.item-path-line {
+  display: block;
+  width: 100%;
+  margin-top: 2px;
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: left;
+  font-size: 10px;
+  line-height: 1.35;
+  color: $text-muted;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  &:hover {
+    color: $color-purple;
+    text-decoration: underline;
   }
 }
 
@@ -1587,8 +1717,9 @@ $tree-indent: 14px;
   font-weight: 600;
   color: $text-secondary;
   font-variant-numeric: tabular-nums;
-  min-width: 2.8em;
+  min-width: 72px;
   text-align: right;
+  display: inline-block;
 
   &.is-pending {
     color: $text-muted;
@@ -1645,14 +1776,25 @@ $tree-indent: 14px;
   cursor: pointer;
   white-space: nowrap;
 
-  &:hover {
+  &:hover:not(:disabled) {
     background: $bg-card-hover;
     color: $text-primary;
   }
 
-  &--danger:hover {
+  &--danger:hover:not(:disabled) {
     border-color: rgba(239, 68, 68, 0.4);
     color: #f87171;
+  }
+
+  &.is-active {
+    border-color: rgba(124, 58, 237, 0.35);
+    color: $color-purple;
+    background: rgba(124, 58, 237, 0.12);
+  }
+
+  &:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
   }
 }
 

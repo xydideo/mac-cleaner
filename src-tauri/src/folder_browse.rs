@@ -12,7 +12,7 @@ const STALE_DAYS: i64 = 90;
 const MAX_ENTRIES: usize = 600;
 /// 深扫单个文件夹时最多统计的文件数，避免 /Users/xxx 这类目录卡死
 const MAX_ANALYZE_FILES: u32 = 200_000;
-/// 深扫体积上限：超过 5GB 立即停止，前端显示 >5G
+/// 深扫体积上限：超过 5GB 立即停止，前端显示 >已扫描体积
 const MAX_ANALYZE_BYTES: u64 = 5 * 1024 * 1024 * 1024;
 
 static BUILD_DIR_NAMES: &[&str] = &[
@@ -39,7 +39,7 @@ pub struct BrowseItem {
     pub size_bytes: u64,
     /// 文件恒为 true；文件夹在快速列表阶段为 false，后台分析完成后为 true
     pub size_ready: bool,
-    /// 深扫因超过 5GB 提前终止时为 true，体积展示为 >5G
+    /// 深扫未完整统计（超过 5GB 或 20 万文件）时为 true，体积展示为 >已扫描值
     pub size_capped: bool,
     pub modified: String,
     pub risk: String,
@@ -216,14 +216,18 @@ fn analyze_items_with_mode(paths: &[String], exact: bool) -> Vec<BrowseItem> {
         .par_iter()
         .filter_map(|path_str| {
             let path = Path::new(path_str);
-            if !path.is_dir() {
+            if !path.exists() {
                 return None;
             }
             let name = path
                 .file_name()
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_default();
-            build_browse_item_analyzed(path, &name, exact)
+            if path.is_dir() {
+                build_browse_item_analyzed(path, &name, exact)
+            } else {
+                build_browse_item_fast(path, &name, false)
+            }
         })
         .collect()
 }
@@ -263,7 +267,7 @@ fn build_browse_item_fast(path: &Path, name: &str, is_dir: bool) -> Option<Brows
         let child_count = count_immediate_children(path);
 
         if crate::protected_paths::is_home_system_directory(path) {
-            return Some(build_system_home_item(
+            return Some(build_system_home_item_pending(
                 &path_str,
                 name,
                 &modified,
@@ -373,7 +377,7 @@ fn build_browse_item_fast(path: &Path, name: &str, is_dir: bool) -> Option<Brows
     }
 }
 
-fn build_system_home_item(
+fn build_system_home_item_pending(
     path_str: &str,
     name: &str,
     modified: &str,
@@ -385,14 +389,54 @@ fn build_system_home_item(
         name: name.to_string(),
         is_directory: true,
         size_bytes: 0,
-        size_ready: true,
+        size_ready: false,
         size_capped: false,
         modified: modified.to_string(),
         risk: "high".into(),
         risk_label: "系统目录".into(),
-        description: "macOS 用户主目录下的系统自带文件夹，不可删除".into(),
+        description: if child_count > 0 {
+            format!(
+                "macOS 系统自带文件夹（含 {child_count} 项），文件夹本身不可删除，正在计算大小…"
+            )
+        } else {
+            "macOS 系统自带文件夹，文件夹本身不可删除，正在计算大小…".into()
+        },
         junk_bytes: 0,
         junk_count: 0,
+        child_count,
+        protected: true,
+        app_label: None,
+        bundle_id: None,
+        app_installed: None,
+    }
+}
+
+fn build_system_home_item_analyzed(
+    path: &Path,
+    path_str: &str,
+    name: &str,
+    modified: &str,
+    child_count: u32,
+    exact: bool,
+) -> BrowseItem {
+    let analysis = analyze_directory(path, name, exact);
+    BrowseItem {
+        id: stable_id(path_str),
+        path: path_str.to_string(),
+        name: name.to_string(),
+        is_directory: true,
+        size_bytes: analysis.total_bytes,
+        size_ready: true,
+        size_capped: analysis.size_capped || analysis.files_capped,
+        modified: modified.to_string(),
+        risk: analysis.risk,
+        risk_label: analysis.risk_label,
+        description: format!(
+            "macOS 系统自带文件夹，文件夹本身不可删除。{}",
+            analysis.description
+        ),
+        junk_bytes: analysis.junk_bytes,
+        junk_count: analysis.junk_count,
         child_count,
         protected: true,
         app_label: None,
@@ -407,11 +451,13 @@ fn build_browse_item_analyzed(path: &Path, name: &str, exact: bool) -> Option<Br
     let child_count = count_immediate_children(path);
 
     if crate::protected_paths::is_home_system_directory(path) {
-        return Some(build_system_home_item(
+        return Some(build_system_home_item_analyzed(
+            path,
             &path_str,
             name,
             &modified,
             child_count,
+            exact,
         ));
     }
 
@@ -424,7 +470,7 @@ fn build_browse_item_analyzed(path: &Path, name: &str, exact: bool) -> Option<Br
         is_directory: true,
         size_bytes: analysis.total_bytes,
         size_ready: true,
-        size_capped: analysis.size_capped,
+        size_capped: analysis.size_capped || analysis.files_capped,
         modified,
         risk: analysis.risk,
         risk_label: analysis.risk_label,
@@ -447,12 +493,12 @@ fn analyze_directory(path: &Path, name: &str, exact: bool) -> DirAnalysis {
             dir_size_no_follow(path)
         };
         let size_hint = if !exact && size_capped {
-            "，已超过 5GB 停止扫描（显示 >5G）"
+            "，已超过 5GB 停止扫描（显示 >已扫描体积）"
         } else {
             ""
         };
         return DirAnalysis {
-            total_bytes: if size_capped { MAX_ANALYZE_BYTES } else { size },
+            total_bytes: size,
             junk_bytes: if size_capped { 0 } else { size },
             junk_count: if size > 0 && !size_capped { 1 } else { 0 },
             risk: "low".into(),
@@ -507,7 +553,6 @@ fn analyze_directory(path: &Path, name: &str, exact: bool) -> DirAnalysis {
 
         if !exact && total_bytes > MAX_ANALYZE_BYTES {
             size_capped = true;
-            total_bytes = MAX_ANALYZE_BYTES;
             break;
         }
 
@@ -543,13 +588,14 @@ fn analyze_directory(path: &Path, name: &str, exact: bool) -> DirAnalysis {
 
     if !exact && size_capped {
         return DirAnalysis {
-            total_bytes: MAX_ANALYZE_BYTES,
+            total_bytes,
             junk_bytes: 0,
             junk_count: 0,
             risk: "high".into(),
             risk_label: "超大目录".into(),
             description: format!(
-                "已超过 5GB（已扫描 {file_count} 个文件），停止继续扫描，可点「具体」计算真实大小"
+                "已扫描 {file_count} 个文件、{:.1} GB，超过 5GB 停止继续扫描，可点「具体」计算真实大小",
+                total_bytes as f64 / 1024.0 / 1024.0 / 1024.0
             ),
             size_capped: true,
             files_capped,
@@ -557,7 +603,10 @@ fn analyze_directory(path: &Path, name: &str, exact: bool) -> DirAnalysis {
     }
 
     let cap_hint = if !exact && files_capped {
-        "（已统计 20万个文件，目录可能更大）".into()
+        format!(
+            "（已统计 20 万个文件、{:.1} GB，目录可能更大）",
+            total_bytes as f64 / 1024.0 / 1024.0 / 1024.0
+        )
     } else {
         String::new()
     };
@@ -598,7 +647,7 @@ fn analyze_directory(path: &Path, name: &str, exact: bool) -> DirAnalysis {
         risk: risk.into(),
         risk_label: risk_label.into(),
         description,
-        size_capped: false,
+        size_capped: files_capped,
         files_capped,
     }
 }
@@ -689,7 +738,7 @@ fn dir_size_no_follow(path: &Path) -> (u64, bool) {
         let size = entry.metadata().ok().map(|m| m.len()).unwrap_or(0);
         total = total.saturating_add(size);
         if total > MAX_ANALYZE_BYTES {
-            return (MAX_ANALYZE_BYTES, true);
+            return (total, true);
         }
     }
     (total, false)
