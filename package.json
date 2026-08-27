@@ -1,0 +1,52 @@
+{
+  "name": "mac-cleaner",
+  "version": "0.1.0",
+  "description": "芒果清理 — 开源 macOS 磁盘清理桌面应用（Tauri + Vue）",
+  "type": "module",
+  "author": "xydideo",
+  "license": "MIT",
+  "keywords": [
+    "macos",
+    "disk-cleaner",
+    "tauri",
+    "vue",
+    "mac-cleaner",
+    "芒果清理"
+  ],
+  "homepage": "https://github.com/xydideo/mac-cleaner#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xydideo/mac-cleaner.git"
+  },
+  "bugs": {
+    "url": "https://github.com/xydideo/mac-cleaner/issues"
+  },
+  "scripts": {
+    "dev": "tauri dev",
+    "build:web": "vue-tsc --noEmit && vite build",
+    "build": "tauri build --target universal-apple-darwin",
+    "postbuild": "bash scripts/copy-release.sh",
+    "sync-icons": "python3 scripts/sync-icons.py"
+  },
+  "dependencies": {
+    "@element-plus/icons-vue": "^2.3.2",
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-dialog": "^2",
+    "@tauri-apps/plugin-opener": "^2",
+    "@vueuse/core": "^13.0.0",
+    "echarts": "^6.1.0",
+    "element-plus": "^2.14.2",
+    "vue": "^3.5.13",
+    "vue-router": "4"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "@types/node": "^26.1.1",
+    "@vitejs/plugin-vue": "^5.2.1",
+    "sass": "^1.101.0",
+    "typescript": "~5.6.2",
+    "unplugin-element-plus": "^0.11.2",
+    "vite": "^6.0.3",
+    "vue-tsc": "^2.1.10"
+  }
+}

@@ -1,0 +1,314 @@
+// reset-element.scss 在 index.scss 中于 EP 主题变量之后引入
+@import './reset-element.scss';
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  font-size: 14px;
+  color: $text-primary;
+  background: transparent;
+  -webkit-font-smoothing: antialiased;
+}
+
+// 文本选中高亮 — 深色背景下用黄色便于阅读
+::selection {
+  background: #facc15;
+  color: #1a1a1a;
+}
+
+::-moz-selection {
+  background: #facc15;
+  color: #1a1a1a;
+}
+
+.desktop-window {
+  background: transparent;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font-family: inherit;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 3px;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.2);
+  }
+}
+
+.glass-card {
+  background: $bg-card;
+  border: 1px solid $border-subtle;
+  border-radius: $radius-card;
+  backdrop-filter: blur(20px);
+  box-shadow: $shadow-card;
+}
+
+.gradient-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px 32px;
+  border: none;
+  border-radius: $radius-button;
+  background: $gradient-primary;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: $shadow-glow;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+
+  &:hover {
+    transform: scale(1.02);
+    filter: brightness(1.08);
+  }
+
+  &:active {
+    transform: scale(0.98);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+  }
+}
+
+.pill-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 16px;
+  border-radius: $radius-button;
+  border: 1px solid $border-subtle;
+  background: transparent;
+  color: $text-secondary;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+
+  &:hover {
+    border-color: rgba(124, 58, 237, 0.5);
+    color: $text-primary;
+  }
+
+  &.is-active {
+    background: $gradient-primary;
+    border-color: transparent;
+    color: #fff;
+  }
+
+  &--primary {
+    background: $gradient-primary;
+    border-color: transparent;
+    color: #fff;
+    font-weight: 600;
+    box-shadow: 0 2px 12px rgba(124, 58, 237, 0.4);
+
+    &:hover {
+      filter: brightness(1.08);
+      border-color: transparent;
+      color: #fff;
+      box-shadow: 0 4px 16px rgba(124, 58, 237, 0.5);
+    }
+
+    &:active {
+      filter: brightness(0.95);
+    }
+  }
+}
+
+// 工具栏统一高度按钮
+.action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 16px;
+  border-radius: $radius-button;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid transparent;
+  white-space: nowrap;
+  user-select: none;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease,
+    filter 0.2s ease,
+    opacity 0.2s ease;
+
+  &:hover:not(:disabled) {
+    transform: translateY(-1px);
+  }
+
+  &:active:not(:disabled) {
+    transform: translateY(0) scale(0.98);
+  }
+
+  &:focus-visible {
+    outline: 2px solid rgba(124, 58, 237, 0.55);
+    outline-offset: 2px;
+  }
+
+  &:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+    filter: none;
+  }
+
+  &--ghost {
+    border-color: $border-subtle;
+    background: rgba(255, 255, 255, 0.06);
+    color: $text-secondary;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+
+    &:hover:not(:disabled) {
+      border-color: rgba(124, 58, 237, 0.45);
+      color: $text-primary;
+      background: rgba(255, 255, 255, 0.12);
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22);
+    }
+
+    &.is-active {
+      background: $gradient-primary;
+      border-color: transparent;
+      color: #fff;
+      box-shadow: 0 4px 16px rgba(124, 58, 237, 0.35);
+
+      &:hover:not(:disabled) {
+        filter: brightness(1.08);
+        box-shadow: 0 6px 20px rgba(124, 58, 237, 0.45);
+      }
+    }
+  }
+
+  &--primary {
+    background: $gradient-primary;
+    border-color: transparent;
+    color: #fff;
+    box-shadow: 0 4px 16px rgba(124, 58, 237, 0.3);
+
+    &:hover:not(:disabled) {
+      filter: brightness(1.1);
+      box-shadow: 0 6px 20px rgba(124, 58, 237, 0.45);
+    }
+
+    &:active:not(:disabled) {
+      filter: brightness(0.96);
+    }
+  }
+
+  &--danger {
+    background: rgba(239, 68, 68, 0.15);
+    border-color: rgba(239, 68, 68, 0.35);
+    color: $color-red;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+
+    &:hover:not(:disabled) {
+      background: rgba(239, 68, 68, 0.28);
+      border-color: rgba(239, 68, 68, 0.6);
+      color: #fecaca;
+      box-shadow: 0 4px 16px rgba(239, 68, 68, 0.28);
+    }
+
+    &:active:not(:disabled) {
+      background: rgba(239, 68, 68, 0.22);
+      filter: brightness(0.95);
+    }
+  }
+}
+
+.risk-tag {
+  display: inline-flex;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+
+  &.low {
+    background: rgba(16, 185, 129, 0.15);
+    color: $color-green;
+  }
+
+  &.medium {
+    background: rgba(245, 158, 11, 0.15);
+    color: $color-amber;
+  }
+
+  &.high {
+    background: rgba(239, 68, 68, 0.15);
+    color: $color-red;
+  }
+}
+
+.page-fade-enter-active,
+.page-fade-leave-active {
+  transition:
+    opacity 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.page-fade-enter-from {
+  opacity: 0;
+  transform: translateY(12px);
+}
+
+.page-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
+.scan-scope-tooltip {
+  max-width: 320px !important;
+}
+
+.scan-scope-tip {
+  white-space: pre-line;
+  font-size: 12px;
+  line-height: 1.55;
+  color: $text-secondary;
+}

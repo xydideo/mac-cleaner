@@ -1,0 +1,107 @@
+// Element Plus CSS 变量 — 全局深色主题（芒果清理）
+@use './variables.scss' as *;
+
+html {
+  color-scheme: dark;
+
+  // 基础色
+  --el-color-primary: #{$color-purple};
+  --el-color-primary-light-3: #9f67ff;
+  --el-color-primary-light-5: #b794ff;
+  --el-color-primary-light-7: #d0b8ff;
+  --el-color-primary-light-8: #e0ccff;
+  --el-color-primary-light-9: #f0e5ff;
+  --el-color-primary-dark-2: #6528d4;
+
+  --el-color-success: #{$color-green};
+  --el-color-warning: #{$color-amber};
+  --el-color-danger: #{$color-red};
+  --el-color-info: #{$text-muted};
+
+  // 背景
+  --el-bg-color: #{$bg-secondary};
+  --el-bg-color-page: #{$bg-primary};
+  --el-bg-color-overlay: #{$bg-secondary};
+
+  // 文字
+  --el-text-color-primary: #{$text-primary};
+  --el-text-color-regular: #{$text-secondary};
+  --el-text-color-secondary: #{$text-muted};
+  --el-text-color-placeholder: #{$text-muted};
+  --el-text-color-disabled: rgba(148, 163, 184, 0.45);
+
+  // 边框 / 填充
+  --el-border-color: #{$border-subtle};
+  --el-border-color-light: rgba(255, 255, 255, 0.06);
+  --el-border-color-lighter: rgba(255, 255, 255, 0.04);
+  --el-border-color-extra-light: rgba(255, 255, 255, 0.03);
+  --el-fill-color-blank: transparent;
+  --el-fill-color: rgba(255, 255, 255, 0.06);
+  --el-fill-color-light: rgba(255, 255, 255, 0.04);
+  --el-fill-color-lighter: rgba(255, 255, 255, 0.03);
+  --el-fill-color-dark: rgba(255, 255, 255, 0.08);
+  --el-fill-color-darker: rgba(255, 255, 255, 0.1);
+
+  // 圆角 / 阴影
+  --el-border-radius-base: #{$radius-button};
+  --el-border-radius-small: 8px;
+  --el-border-radius-round: #{$radius-pill};
+  --el-box-shadow: #{$shadow-card};
+  --el-box-shadow-light: 0 4px 16px rgba(0, 0, 0, 0.28);
+  --el-box-shadow-lighter: 0 2px 8px rgba(0, 0, 0, 0.2);
+
+  // MessageBox
+  --el-messagebox-title-color: #{$text-primary};
+  --el-messagebox-content-color: #{$text-secondary};
+  --el-messagebox-border-radius: #{$radius-card};
+  --el-messagebox-box-shadow: #{$shadow-card};
+  --el-messagebox-width: 420px;
+  --el-messagebox-font-size: 16px;
+  --el-messagebox-content-font-size: 14px;
+  --el-messagebox-padding-primary: 16px;
+
+  // Dialog
+  --el-dialog-bg-color: #{$bg-secondary};
+  --el-dialog-border-radius: #{$radius-card};
+  --el-dialog-title-font-size: 16px;
+  --el-dialog-content-font-size: 14px;
+  --el-dialog-padding-primary: 20px;
+
+  // Button
+  --el-button-bg-color: rgba(255, 255, 255, 0.06);
+  --el-button-border-color: #{$border-subtle};
+  --el-button-text-color: #{$text-secondary};
+  --el-button-hover-bg-color: rgba(255, 255, 255, 0.1);
+  --el-button-hover-border-color: rgba(124, 58, 237, 0.35);
+  --el-button-hover-text-color: #{$text-primary};
+
+  // Overlay
+  --el-overlay-color: rgba(0, 0, 0, 0.55);
+  --el-overlay-color-light: rgba(0, 0, 0, 0.45);
+  --el-overlay-color-lighter: rgba(0, 0, 0, 0.35);
+
+  // Checkbox / Radio / Select
+  --el-checkbox-checked-bg-color: #{$color-purple};
+  --el-checkbox-checked-input-border-color: #{$color-purple};
+  --el-checkbox-bg-color: transparent;
+  --el-checkbox-input-border: 1px solid #{$border-subtle};
+
+  --el-radio-input-bg-color: rgba(255, 255, 255, 0.06);
+  --el-radio-input-border-color: #{$border-subtle};
+  --el-radio-text-color: #{$text-secondary};
+
+  --el-select-border-color-hover: rgba(124, 58, 237, 0.35);
+  --el-select-disabled-color: rgba(148, 163, 184, 0.45);
+  --el-select-disabled-border: rgba(255, 255, 255, 0.06);
+  --el-select-input-color: #{$text-muted};
+  --el-select-multiple-input-color: #{$text-primary};
+  --el-select-close-hover-color: #{$text-secondary};
+
+  --el-select-dropdown-bg-color: #{$bg-secondary};
+  --el-select-option-text-color: #{$text-secondary};
+  --el-select-option-hover-background: rgba(255, 255, 255, 0.06);
+  --el-select-option-selected-text-color: #{$color-purple};
+
+  // Progress
+  --el-fill-color-light: rgba(255, 255, 255, 0.08);
+}

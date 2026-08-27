@@ -1,0 +1,31 @@
+// 设计 Token - 风格深色主题
+$bg-primary: #0d0d12;
+$bg-secondary: #12121a;
+$bg-card: rgba(255, 255, 255, 0.06);
+$bg-card-hover: rgba(255, 255, 255, 0.09);
+$border-subtle: rgba(255, 255, 255, 0.08);
+$border-glow: rgba(124, 58, 237, 0.35);
+
+$text-primary: #f1f5f9;
+$text-secondary: #94a3b8;
+$text-muted: #64748b;
+
+$gradient-primary: linear-gradient(135deg, #7c3aed 0%, #3b82f6 100%);
+$gradient-success: linear-gradient(135deg, #10b981 0%, #34d399 100%);
+$gradient-warning: linear-gradient(135deg, #f59e0b 0%, #fbbf24 100%);
+
+$color-purple: #7c3aed;
+$color-blue: #3b82f6;
+$color-green: #10b981;
+$color-amber: #f59e0b;
+$color-red: #ef4444;
+
+$radius-card: 16px;
+$radius-button: 12px;
+$radius-pill: 999px;
+
+$shadow-card: 0 8px 32px rgba(0, 0, 0, 0.4);
+$shadow-glow: 0 0 24px rgba(124, 58, 237, 0.35);
+
+$sidebar-width: 72px;
+$header-height: 52px;

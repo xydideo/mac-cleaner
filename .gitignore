@@ -1,0 +1,10 @@
+node_modules
+dist
+src-tauri/target
+.DS_Store
+*.log
+
+# 本地旧构建产物
+mac-cleaner
+
+
