@@ -1,4 +1,5 @@
 use crate::app_resolver::AppIndex;
+use crate::protected_paths;
 use crate::ScanItem;
 use crate::scan_control;
 use serde::{Deserialize, Serialize};
@@ -90,6 +91,10 @@ fn stable_item_id(prefix: &str, path: &str) -> String {
     format!("{prefix}_{}", path.replace('/', "_"))
 }
 
+fn include_in_junk_scan(path: &Path) -> bool {
+    !protected_paths::is_excluded_from_junk_scan(path)
+}
+
 /// 扫描目录下所有子文件夹，按体积从大到小排序（结果稳定、可预期）
 fn scan_subdirs_sorted(dir: &Path, skip_hidden: bool) -> Vec<(PathBuf, String, u64)> {
     let entries: Vec<(PathBuf, String)> = std::fs::read_dir(dir)
@@ -134,6 +139,9 @@ pub fn scan_phase(phase: &str, deep: bool) -> Result<Vec<ScanItem>, String> {
             let caches = home.join("Library/Caches");
             if caches.exists() {
                 for (path, name, size) in scan_subdirs_sorted(&caches, true) {
+                    if !include_in_junk_scan(&path) {
+                        continue;
+                    }
                     let path_str = path.to_string_lossy().to_string();
                     let resolved = app_index.resolve(&name);
                     let install_hint = if resolved.installed {
@@ -171,7 +179,7 @@ pub fn scan_phase(phase: &str, deep: bool) -> Result<Vec<ScanItem>, String> {
                 let subdirs = scan_subdirs_sorted(&logs, true);
                 if subdirs.is_empty() {
                     let size = safe_dir_size(&logs);
-                    if size > 0 {
+                    if size > 0 && include_in_junk_scan(&logs) {
                         let path_str = logs.to_string_lossy().to_string();
                         items.push(ScanItem {
                             id: stable_item_id("log", &path_str),
@@ -190,6 +198,9 @@ pub fn scan_phase(phase: &str, deep: bool) -> Result<Vec<ScanItem>, String> {
                     }
                 } else {
                     for (path, name, size) in subdirs {
+                        if !include_in_junk_scan(&path) {
+                            continue;
+                        }
                         let path_str = path.to_string_lossy().to_string();
                         items.push(ScanItem {
                             id: stable_item_id("log", &path_str),
@@ -255,20 +266,24 @@ pub fn scan_phase(phase: &str, deep: bool) -> Result<Vec<ScanItem>, String> {
                 plist_items.sort_by(|a, b| b.2.cmp(&a.2).then_with(|| a.1.cmp(&b.1)));
 
                 for (path, name, size) in plist_items {
-                    let path_str = path.to_string_lossy().to_string();
                     let resolved = app_index.resolve(&name);
+                    let installed = resolved.installed;
+                    if !protected_paths::is_eligible_third_party_leftover_preference(&name, installed)
+                    {
+                        continue;
+                    }
+                    if !include_in_junk_scan(&path) {
+                        continue;
+                    }
+                    let path_str = path.to_string_lossy().to_string();
                     items.push(ScanItem {
                         id: stable_item_id("leftover", &path_str),
                         path: path_str,
                         size_bytes: size,
                         category: "leftover".into(),
                         risk: "low".into(),
-                        title: format!("遗留配置: {name}"),
-                        description: if resolved.installed {
-                            "已安装应用的偏好设置文件".into()
-                        } else {
-                            "可能是已卸载应用的偏好设置文件".into()
-                        },
+                        title: format!("第三方遗留: {name}"),
+                        description: "已卸载第三方应用的偏好设置，删除一般不影响系统与在装应用".into(),
                         last_modified: modified_str(&path),
                         app_name: Some(resolved.app_name),
                         app_label: Some(resolved.app_label),
@@ -301,6 +316,9 @@ pub fn scan_phase(phase: &str, deep: bool) -> Result<Vec<ScanItem>, String> {
                 large_files.sort_by(|a, b| b.2.cmp(&a.2).then_with(|| a.1.cmp(&b.1)));
 
                 for (path, name, size) in large_files {
+                    if !include_in_junk_scan(&path) {
+                        continue;
+                    }
                     let path_str = path.to_string_lossy().to_string();
                     items.push(ScanItem {
                         id: stable_item_id("large", &path_str),
@@ -385,6 +403,7 @@ fn scan_update_cache(home: &Path, app_index: &AppIndex) -> Vec<ScanItem> {
     for entry in WalkDir::new(&app_support)
         .max_depth(UPDATE_SCAN_MAX_DEPTH)
         .into_iter()
+        .filter_entry(|entry| !protected_paths::should_prune_scan_entry(entry.path()))
         .filter_map(|e| e.ok())
     {
         if scan_control::checkpoint(index) {
@@ -394,6 +413,9 @@ fn scan_update_cache(home: &Path, app_index: &AppIndex) -> Vec<ScanItem> {
 
         let path = entry.path();
         if path == app_support.as_path() {
+            continue;
+        }
+        if !include_in_junk_scan(path) {
             continue;
         }
 
@@ -495,6 +517,9 @@ fn push_update_cache_dir(
     if !path.is_dir() {
         return;
     }
+    if !include_in_junk_scan(path) {
+        return;
+    }
     let path_str = path.to_string_lossy().to_string();
     if !seen_paths.insert(path_str.clone()) {
         return;
@@ -530,6 +555,9 @@ fn push_update_package_file(
     path: &Path,
     app_index: &AppIndex,
 ) {
+    if !include_in_junk_scan(path) {
+        return;
+    }
     let path_str = path.to_string_lossy().to_string();
     if !seen_paths.insert(path_str.clone()) {
         return;

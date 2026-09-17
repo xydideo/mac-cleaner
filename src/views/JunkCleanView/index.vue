@@ -31,11 +31,10 @@
             </button>
             <button
               class="action-btn action-btn--ghost"
-              :class="{ 'is-active': allLowSelected }"
-              :disabled="cleaning"
-              @click="selectAllLow"
+              :disabled="cleaning || selectedCount === 0"
+              @click="deselectAll"
             >
-              全选低风险
+              取消全选
             </button>
             <button
               class="action-btn action-btn--primary"
@@ -61,6 +60,14 @@
             class="group-card glass-card"
           >
             <div class="group-header" @click="toggleGroup(group.category)">
+              <el-checkbox
+                class="group-select"
+                :model-value="isGroupAllSelected(group)"
+                :indeterminate="isGroupIndeterminate(group)"
+                :disabled="cleaning"
+                @click.stop
+                @change="(checked: boolean) => setGroupSelection(group, checked)"
+              />
               <span class="group-dot" :class="group.category" />
               <span class="group-title">{{ group.label }}</span>
               <span class="group-size">{{ formatSize(group.totalSize) }}</span>
@@ -175,7 +182,7 @@ const categoryLabels: Record<string, string> = {
   cache: "应用缓存",
   log: "系统日志",
   trash: "废纸篓",
-  leftover: "系统遗留碎片",
+  leftover: "第三方遗留",
   large_file: "大文件",
 }
 
@@ -201,9 +208,12 @@ const totalSelectedBytes = computed(() =>
   scanItems.value.filter((i) => i.selected).reduce((s, i) => s + i.size_bytes, 0)
 )
 
-const allLowSelected = computed(() =>
-  scanItems.value.filter((i) => i.risk === "low").every((i) => i.selected)
-)
+type ScanItemGroup = {
+  category: string
+  label: string
+  items: ScanItem[]
+  totalSize: number
+}
 
 const groupedItems = computed(() => {
   const map = new Map<string, ScanItem[]>()
@@ -225,10 +235,23 @@ const toggleGroup = (cat: string) => {
   else expandedGroups.add(cat)
 }
 
-const selectAllLow = () => {
-  const shouldSelect = !allLowSelected.value
+const isGroupAllSelected = (group: ScanItemGroup) =>
+  group.items.length > 0 && group.items.every((i) => i.selected)
+
+const isGroupIndeterminate = (group: ScanItemGroup) => {
+  const n = group.items.filter((i) => i.selected).length
+  return n > 0 && n < group.items.length
+}
+
+const setGroupSelection = (group: ScanItemGroup, selected: boolean) => {
+  group.items.forEach((i) => {
+    i.selected = selected
+  })
+}
+
+const deselectAll = () => {
   scanItems.value.forEach((i) => {
-    if (i.risk === "low") i.selected = shouldSelect
+    i.selected = false
   })
 }
 
@@ -457,6 +480,10 @@ const handleCleanPermanent = async () => {
   user-select: none;
 
   &:hover { background: $bg-card-hover; }
+}
+
+.group-select {
+  flex-shrink: 0;
 }
 
 .group-dot {

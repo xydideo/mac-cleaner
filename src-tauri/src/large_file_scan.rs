@@ -56,7 +56,7 @@ pub fn scan_large_items(
         let walker = WalkDir::new(root)
             .follow_links(false)
             .into_iter()
-            .filter_entry(|entry| !should_skip_entry(entry.path()));
+            .filter_entry(|entry| !protected_paths::should_prune_scan_entry(entry.path()));
 
         for entry in walker.filter_map(|e| e.ok()) {
             if scan_control::checkpoint(files_scanned) {
@@ -98,7 +98,7 @@ pub fn scan_large_items(
                     *dir_sizes.entry(p.to_path_buf()).or_default() += size;
                     parent = p.parent();
                 }
-            } else if size >= min_file_bytes {
+            } else if size >= min_file_bytes && !protected_paths::is_protected_path(path) {
                 file_items.push(build_file_item(path, size, min_file_mb, &app_index));
             }
         }
@@ -175,6 +175,9 @@ fn build_folder_items(
         if !dir_path.is_dir() {
             continue;
         }
+        if protected_paths::is_protected_path(&dir_path) {
+            continue;
+        }
         if is_redundant_folder(&dir_path, &folder_items) {
             continue;
         }
@@ -204,11 +207,6 @@ fn scan_roots() -> Vec<PathBuf> {
         roots.push(applications);
     }
 
-    let system = PathBuf::from("/System");
-    if system.is_dir() {
-        roots.push(system);
-    }
-
     let volumes = PathBuf::from("/Volumes");
     if let Ok(entries) = std::fs::read_dir(volumes) {
         for entry in entries.flatten() {
@@ -228,18 +226,6 @@ fn scan_roots() -> Vec<PathBuf> {
     }
 
     roots
-}
-
-fn should_skip_entry(path: &Path) -> bool {
-    let name = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("");
-    if name == ".Trash" || name == ".Trashes" || name == " .Trashes" {
-        return true;
-    }
-
-    false
 }
 
 fn is_under_roots(path: &Path, roots: &[PathBuf]) -> bool {

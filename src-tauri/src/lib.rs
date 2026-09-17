@@ -176,7 +176,7 @@ async fn handle_scan(app: &AppHandle, data: &serde_json::Value) -> Result<serde_
             ("scanning_caches", "正在扫描缓存"),
             ("scanning_logs", "正在扫描日志"),
             ("scanning_trash", "正在扫描废纸篓"),
-            ("scanning_leftovers", "正在扫描系统遗留"),
+            ("scanning_leftovers", "正在扫描第三方遗留配置"),
             ("scanning_large", "正在扫描大文件"),
         ]
     } else {
@@ -274,6 +274,15 @@ fn handle_clean(data: &serde_json::Value) -> Result<serde_json::Value, String> {
     let mut size_index = 0usize;
 
     for path in paths {
+        if protected_paths::is_protected_path(std::path::Path::new(&path)) {
+            failed.push(CleanError {
+                path: path.clone(),
+                message: protected_paths::protection_message(std::path::Path::new(&path))
+                    .unwrap_or_else(|| "系统或受保护路径，无法删除".into()),
+            });
+            continue;
+        }
+
         let size = data
             .get("sizes")
             .and_then(|v| v.as_array())
